@@ -1,0 +1,230 @@
+import { LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export struct FileItem {
+    id: int,
+    name: string,
+    path: string,
+    size: int,
+    modified_time: string,
+    file_type: string,
+}
+
+export struct ContextMenuItem {
+    text: string,
+    action: string,
+}
+
+export component AppWindow inherits Window {
+    title: "File Search Tool";
+    preferred-width: 800px;
+    preferred-height: 600px;
+    
+    in-out property <[FileItem]> file-items: [];
+    in-out property <string> search-text: "";
+    in-out property <bool> context-menu-visible: false;
+    in-out property <[ContextMenuItem]> context-menu-items: [
+        { text: "Download File", action: "download" },
+        { text: "Send to Server", action: "send_to_server" },
+        { text: "Update Content", action: "update_content" },
+        { text: "Open Location", action: "open_location" },
+    ];
+    in-out property <FileItem> selected-file-item: { id: 0, name: "", path: "", size: 0, modified_time: "", file_type: "" };
+    callback search-requested(string);
+    callback context-menu-requested(int, length, length);
+    callback download-file();
+    callback send-to-server();
+    callback update-content();
+    callback open-location();
+    
+    VerticalBox {
+        padding: 20px;
+        spacing: 10px;
+        
+        HorizontalBox {
+            spacing: 10px;
+            
+            Text {
+                text: "Search Files:";
+                vertical-alignment: center;
+            }
+            
+            search-input := LineEdit {
+                placeholder-text: "Enter file name or path...";
+                edited => {
+                    root.search-text = self.text;
+                    root.search-requested(root.search-text);
+                }
+                accepted => {
+                    root.search-requested(root.search-text);
+                }
+            }
+            
+            Rectangle {
+                width: 60px;
+                height: 30px;
+                background: #007acc;
+                border-radius: 5px;
+                
+                TouchArea {
+                    clicked => {
+                        root.search-requested(root.search-text);
+                    }
+                }
+                
+                Text {
+                    text: "Search";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        
+        ScrollView {
+            preferred-height: 100%;
+            
+            VerticalBox {
+                spacing: 5px;
+                
+                if root.file-items.length == 0 : Text {
+                    text: "No matching files found";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    opacity: 0.5;
+                }
+                
+                for file-item in root.file-items : Rectangle {
+                    height: 60px;
+                    background: #ffffff;
+                    border-radius: 5px;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    
+                    TouchArea {
+                        clicked => {
+                            root.selected-file-item = file-item;
+                            root.context-menu-visible = false; // 左键点击时关闭菜单
+                        }
+                        
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                root.selected-file-item = file-item;
+                                root.context-menu-visible = true;
+                                root.context-menu-requested(file-item.id, 0, 0);
+                            }
+                        }
+                        
+                        HorizontalBox {
+                            padding: 10px;
+                            spacing: 10px;
+                            
+                            Rectangle {
+                                width: 40px;
+                                height: 40px;
+                                background: #007acc;
+                                border-radius: 5px;
+                                
+                                Text {
+                                    text: "📄";
+                                    font-size: 20px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    color: white;
+                                }
+                            }
+                            
+                            VerticalBox {
+                                spacing: 5px;
+                                
+                                Text {
+                                    text: file-item.name;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                }
+                                
+                                Text {
+                                    text: file-item.path;
+                                    font-size: 12px;
+                                    color: #666666;
+                                    overflow: elide;
+                                }
+                                
+                                HorizontalBox {
+                                    spacing: 10px;
+                                    
+                                    Text {
+                                        text: "Size: " + (file-item.size / 1024) + " KB";
+                                        font-size: 11px;
+                                        color: #888888;
+                                    }
+                                    
+                                    Text {
+                                        text: "Modified: " + file-item.modified_time;
+                                        font-size: 11px;
+                                        color: #888888;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 右键菜单 - 使用绝对定位放在窗口层
+    if root.context-menu-visible : Rectangle {
+        x: 200px;
+        y: 200px;
+        width: 200px;
+        height: root.context-menu-items.length * 40px;
+        background: #ffffff;
+        border-radius: 5px;
+        border-width: 1px;
+        border-color: #cccccc;
+        drop-shadow-blur: 5px;
+        drop-shadow-offset-x: 2px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: #00000020;
+        
+        VerticalBox {
+            padding: 5px;
+            
+            for menu-item in root.context-menu-items : Rectangle {
+                height: 35px;
+                
+                TouchArea {
+                    clicked => {
+                        root.context-menu-visible = false;
+                        if (menu-item.action == "download") {
+                            root.download-file();
+                        } else if (menu-item.action == "send_to_server") {
+                            root.send-to-server();
+                        } else if (menu-item.action == "update_content") {
+                            root.update-content();
+                        } else if (menu-item.action == "open_location") {
+                            root.open-location();
+                        }
+                    }
+                    
+                    Text {
+                        text: menu-item.text;
+                        font-size: 14px;
+                        color: #333333;
+                        horizontal-alignment: left;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+        
+        // 点击菜单外部关闭菜单
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                root.context-menu-visible = false;
+            }
+        }
+    }
+}
