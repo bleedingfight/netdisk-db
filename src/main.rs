@@ -1,75 +1,124 @@
-mod config;
-mod database;
-mod handlers;
-mod ui;
-mod utils;
+//! 文件搜索工具 - 主程序入口
+//!
+//! 使用现代MVC架构组织的文件搜索应用程序
 
-use anyhow::{Context, Result};
-use database::sqlite::SqliteDatabase;
-use database::Database;
-use ui::AppWindow;
+use anyhow::Context;
+use netdisk_db::prelude::*; // 使用库的prelude简化导入
 use slint::ComponentHandle;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-
-use handlers::*;
-use utils::format_file_size;
 use tracing::{debug, info, span, Level};
 use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 初始化日志系统
     tracing_subscriber::fmt::init();
 
-    // 创建一个 `span`，表示一个特定的执行范围
+    // 创建应用范围跟踪
     let span = span!(Level::INFO, "netdisk_db", foo = 42, bar = "hello");
-
-    // 使用 `span.enter()` 来指定该范围内的事件
-    // `enter` 使得当前代码块的执行与这个 `span` 相关联
     let _enter = span.enter();
 
-    // Initialize configuration
+    info!("Starting File Search Application");
+
+    // 初始化配置
+    let config = initialize_config()?;
+    debug!("Configuration loaded successfully");
+
+    // 初始化数据库管理器
+    let config_arc = Arc::new(Mutex::new(config.clone()));
+    let database_manager = Arc::new(Mutex::new(DatabaseManager::new(config_arc.clone())?));
+    debug!("Database manager initialized successfully");
+
+    // 创建UI
+    let ui = create_ui(&config)?;
+    debug!("UI created successfully");
+
+    // 设置事件处理器
+    setup_event_handlers(&ui, database_manager.clone())?;
+    
+    // 初始化数据库选择器
+    initialize_database_selector(&ui.as_weak(), database_manager.clone());
+
+    info!("Application initialized, starting main loop");
+    
+    // 运行应用
+    ui.run().context("Failed to run UI application")?;
+    
+    info!("Application shutdown");
+    Ok(())
+}
+
+/// 初始化应用程序配置
+/// 
+/// 如果配置文件不存在则创建默认配置
+fn initialize_config() -> Result<AppConfig> {
     let config_path = "config.json";
+    
     let config = if std::path::Path::new(config_path).exists() {
-        config::AppConfig::load_from_file(config_path).context("Failed to load config file")?
+        AppConfig::load_from_file(config_path).context("Failed to load config file")?
     } else {
         info!("Config file not found, creating default config");
-        let default_config = config::AppConfig::default();
-        default_config
-            .save_to_file(config_path)
+        let default_config = AppConfig::default();
+        default_config.save_to_file(config_path)
             .context("Failed to create default config file")?;
         default_config
     };
 
+    // 记录配置信息
     debug!("Using database type: {}", config.database.db_type);
     debug!("Database connection: {}", config.database.connection_string);
-    debug!("Current timestamp: {}", utils::get_timestamp());
+    debug!("Current timestamp: {}", get_timestamp());
     debug!("File size formatting test: {}", format_file_size(1048576));
 
-    // Initialize database
-    let database: Arc<Mutex<dyn Database>> = match config.database.db_type.as_str() {
+    Ok(config)
+}
+
+/// 初始化数据库连接
+/// 
+/// # Arguments
+/// * `config` - 应用配置
+async fn initialize_database(config: &AppConfig) -> Result<Arc<Mutex<dyn Database>>> {
+    match config.database.db_type.as_str() {
         "sqlite" => {
             let sqlite_db = SqliteDatabase::new(&config.database.connection_string)
                 .context("Failed to create SQLite database")?;
-            sqlite_db
-                .init_database()
+            sqlite_db.init_database()
                 .context("Failed to initialize database")?;
-            Arc::new(Mutex::new(sqlite_db))
+            Ok(Arc::new(Mutex::new(sqlite_db)))
         }
         _ => {
             anyhow::bail!("Unsupported database type: {}", config.database.db_type);
         }
-    };
+    }
+}
 
-    // 创建 UI
+/// 创建UI界面
+/// 
+/// # Arguments
+/// * `config` - 应用配置（用于窗口大小等设置）
+fn create_ui(config: &AppConfig) -> Result<AppWindow> {
     let ui = AppWindow::new().context("Failed to create UI window")?;
+    
+    // 可以在这里根据配置设置UI属性
+    debug!("UI window created with size: {}x{}", 
+           config.window_width, config.window_height);
+    
+    Ok(ui)
+}
 
+/// 设置事件处理器
+///
+/// # Arguments
+/// * `ui` - UI 实例
+/// * `database_manager` - 数据库管理器
+fn setup_event_handlers(ui: &AppWindow, database_manager: Arc<Mutex<DatabaseManager>>) -> Result<()> {
     let ui_handle = ui.as_weak();
-    let database_handle = database.clone();
+    let database_handle = database_manager.lock().unwrap().get_current_database();
     let last_search_time = Arc::new(Mutex::new(Instant::now()));
     let search_delay = Duration::from_millis(300); // 300ms 防抖延迟
 
+    // 搜索请求处理
     ui.on_search_requested(move |query| {
         handle_search_request(
             &query,
@@ -80,42 +129,60 @@ async fn main() -> Result<()> {
         );
     });
 
-    // Handle context menu requests
+    // 数据库切换处理
     let ui_handle = ui.as_weak();
-    let database_handle = database.clone();
+    let manager_handle = database_manager.clone();
+    ui.on_database_changed(move |index| {
+        handle_database_changed(index, &ui_handle, manager_handle.clone());
+    });
+
+    // 上下文菜单请求处理
+    let ui_handle = ui.as_weak();
+    let database_handle = database_manager.lock().unwrap().get_current_database();
     ui.on_context_menu_requested(move |file_id, x, y| {
         handle_context_menu_requested(
             file_id,
             x,
             y,
-            &ui_handle, // UI 句柄
+            &ui_handle,
             database_handle.clone(),
         );
     });
 
-    // Handle context menu actions
+    // 文件操作处理
+    setup_file_operations(ui, database_manager)?;
+
+    Ok(())
+}
+
+/// 设置文件操作处理器
+///
+/// # Arguments
+/// * `ui` - UI 实例
+/// * `database_manager` - 数据库管理器
+fn setup_file_operations(ui: &AppWindow, _database_manager: Arc<Mutex<DatabaseManager>>) -> Result<()> {
     let ui_handle = ui.as_weak();
-    let _database_handle = database.clone();
 
-    // 下载文件功能
+    // 下载文件
     ui.on_download_file(move || {
-        // 获取 UI 弱引用，防止闭包持有 UI 的强引用导致内存泄漏
         let ui_handle = ui_handle.clone();
-        let ui = ui_handle.unwrap();
+        let ui = match ui_handle.upgrade() {
+            Some(u) => u,
+            None => return,
+        };
 
-        // 复制选中项，避免闭包捕获 UI 的强引用
         let selected_item = ui.get_selected_file_item();
         let file_path = selected_item.path.to_string();
-        let _file_name = selected_item.name.to_string();
+
+        debug!("Starting download for file: {}", file_path);
 
         // 启动后台任务
         tokio::spawn(async move {
-            // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
             tokio::task::spawn_blocking(move || {
-                handlers::download_proc(file_path.clone());
+                download_proc(file_path.clone());
             })
             .await
-            .unwrap(); // 等待后台线程完成
+            .unwrap();
 
             // 回到 UI 线程更新
             if let Some(ui) = ui_handle.upgrade() {
@@ -124,45 +191,45 @@ async fn main() -> Result<()> {
         });
     });
 
-    // 发送到服务器功能
+    // 发送到服务器
     let ui_handle = ui.as_weak();
     ui.on_send_to_server(move || {
         handle_send_to_server(&ui_handle);
     });
 
-    // 更新文件内容功能
+    // 更新内容
     let ui_handle = ui.as_weak();
-    let handle = ui_handle.clone();
     ui.on_update_content(move || {
-        handle_update_content(&handle);
+        handle_update_content(&ui_handle);
     });
     
-    // 打开文件位置功能
-    let handle = ui_handle.clone();
+    // 打开文件位置
+    let ui_handle = ui.as_weak();
     ui.on_open_location(move || {
-        handle_open_location(&handle);
+        handle_open_location(&ui_handle);
     });
 
-    let handle = ui_handle.clone();
-    ui.on_open_location(move || {
-        handle_open_location(&handle);
-    });
+    // 发送到 Aria2
+    let ui_handle = ui.as_weak();
     ui.on_send_to_aria2(move || {
         let ui_handle = ui_handle.clone();
-        let ui = ui_handle.unwrap();
+        let ui = match ui_handle.upgrade() {
+            Some(u) => u,
+            None => return,
+        };
+
         let selected_item = ui.get_selected_file_item();
         let file_path = selected_item.path.to_string();
 
-        debug!("Try to send {} to aria2 server!", file_path);
+        debug!("Sending file to Aria2: {}", file_path);
 
         // 启动后台任务
         tokio::spawn(async move {
-            // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
             tokio::task::spawn_blocking(move || {
-                handlers::send_to_aria2(file_path.clone());
+                send_to_aria2(file_path.clone());
             })
             .await
-            .unwrap(); // 等待后台线程完成
+            .unwrap();
 
             // 回到 UI 线程更新
             if let Some(ui) = ui_handle.upgrade() {
@@ -170,9 +237,6 @@ async fn main() -> Result<()> {
             }
         });
     });
-
-    // Run application
-    ui.run().context("Failed to run UI application")?;
 
     Ok(())
 }

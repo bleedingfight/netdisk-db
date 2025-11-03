@@ -1,4 +1,4 @@
-import { LineEdit, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { LineEdit, ScrollView, VerticalBox, HorizontalBox, StandardButton, Button } from "std-widgets.slint";
 
 export struct FileItem {
     id: int,
@@ -12,6 +12,12 @@ export struct FileItem {
 export struct ContextMenuItem {
     text: string,
     action: string,
+}
+
+export struct DatabaseInfo {
+    name: string,
+    db_type: string,
+    index: int,
 }
 
 export component AppWindow inherits Window {
@@ -30,6 +36,11 @@ export component AppWindow inherits Window {
         { text: "Open Location", action: "open_location" },
     ];
     in-out property <FileItem> selected-file-item: { id: 0, name: "", path: "", size: 0, modified_time: "", file_type: "" };
+    in-out property <[DatabaseInfo]> available-databases: [];
+    in-out property <int> current-database-index: 0;
+    in-out property <[string]> search-fields: ["name", "path"];
+    in-out property <int> current-search-field-index: 0;
+    
     callback search-requested(string);
     callback context-menu-requested(int, length, length);
     callback download-file();
@@ -37,10 +48,40 @@ export component AppWindow inherits Window {
     callback update-content();
     callback open-location();
     callback send-to-aria2();
+    callback database-changed(int);
     
     VerticalBox {
         padding: 20px;
         spacing: 10px;
+        
+        // 数据库选择器
+        HorizontalBox {
+            spacing: 10px;
+            
+            Text {
+                text: "Database:";
+                vertical-alignment: center;
+                font-weight: 600;
+            }
+            
+            // 使用按钮组代替ComboBox
+            for db-info[index] in root.available-databases : Button {
+                text: db-info.name;
+                checkable: true;
+                checked: root.current-database-index == index;
+                clicked => {
+                    root.current-database-index = index;
+                    root.database-changed(index);
+                }
+            }
+            
+            Text {
+                text: "Type: " + (root.available-databases.length > root.current-database-index ? root.available-databases[root.current-database-index].db_type : "");
+                vertical-alignment: center;
+                font-size: 12px;
+                color: #666666;
+            }
+        }
         
         HorizontalBox {
             spacing: 10px;
@@ -48,6 +89,16 @@ export component AppWindow inherits Window {
             Text {
                 text: "Search Files:";
                 vertical-alignment: center;
+            }
+            
+            // 使用按钮组代替ComboBox
+            for field-info[index] in root.search-fields : Button {
+                text: field-info;
+                checkable: true;
+                checked: root.current-search-field-index == index;
+                clicked => {
+                    root.current-search-field-index = index;
+                }
             }
             
             search-input := LineEdit {
