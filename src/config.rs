@@ -48,9 +48,4 @@ impl AppConfig {
         
         Ok(())
     }
-
-    pub fn create_default_config(path: &str) -> Result<()> {
-        let config = AppConfig::default();
-        config.save_to_file(path)
-    }
 }

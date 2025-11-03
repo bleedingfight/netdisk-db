@@ -1,17 +1,19 @@
 mod config;
 mod database;
 mod handlers;
+mod ui;
 
 use anyhow::{Context, Result};
-use database::{sqlite::SqliteDatabase, Database};
-use netdisk_db::ui::ui_handler::AppWindow;
-use slint::{ComponentHandle, ModelRc, VecModel};
+use database::sqlite::SqliteDatabase;
+use database::Database;
+use ui::AppWindow;
+use slint::ComponentHandle;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::handlers::basic::*;
-use tracing::{debug, error, info, span, Level};
+use handlers::*;
+use tracing::{debug, info, span, Level};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -89,7 +91,7 @@ async fn main() -> Result<()> {
 
     // Handle context menu actions
     let ui_handle = ui.as_weak();
-    let database_handle = database.clone();
+    let _database_handle = database.clone();
 
     // 下载文件功能
     ui.on_download_file(move || {
@@ -100,13 +102,13 @@ async fn main() -> Result<()> {
         // 复制选中项，避免闭包捕获 UI 的强引用
         let selected_item = ui.get_selected_file_item();
         let file_path = selected_item.path.to_string();
-        let file_name = selected_item.name.to_string();
+        let _file_name = selected_item.name.to_string();
 
         // 启动后台任务
         tokio::spawn(async move {
             // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
             tokio::task::spawn_blocking(move || {
-                handlers::basic::download_proc(file_path.clone());
+                handlers::download_proc(file_path.clone());
             })
             .await
             .unwrap(); // 等待后台线程完成
@@ -130,11 +132,11 @@ async fn main() -> Result<()> {
     ui.on_update_content(move || {
         handle_update_content(&handle);
     });
+    
     // 打开文件位置功能
     let handle = ui_handle.clone();
-    ui.on_send_to_server(move || {
-        // 在闭包中，我们传递 ui_handle，并在内部尝试升级为强引用
-        handle_send_to_server(&handle);
+    ui.on_open_location(move || {
+        handle_open_location(&handle);
     });
 
     let handle = ui_handle.clone();
@@ -153,7 +155,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
             tokio::task::spawn_blocking(move || {
-                handlers::basic::send_to_aria2(file_path.clone());
+                handlers::send_to_aria2(file_path.clone());
             })
             .await
             .unwrap(); // 等待后台线程完成
