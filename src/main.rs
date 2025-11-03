@@ -1,22 +1,21 @@
 mod config;
 mod database;
-mod ui;
+mod handlers;
 
 use anyhow::{Context, Result};
 use database::{sqlite::SqliteDatabase, Database};
+use netdisk_db::ui::ui_handler::AppWindow;
 use slint::{ComponentHandle, ModelRc, VecModel};
-use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::ui::AppWindow;
-
+use crate::handlers::basic::*;
 use tracing::{debug, error, info, span, Level};
 use tracing_subscriber;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     // 创建一个 `span`，表示一个特定的执行范围
@@ -65,71 +64,27 @@ fn main() -> Result<()> {
     let last_search_time = Arc::new(Mutex::new(Instant::now()));
     let search_delay = Duration::from_millis(300); // 300ms 防抖延迟
 
-    // Handle search requests with debouncing
     ui.on_search_requested(move |query| {
-        let ui = ui_handle.unwrap();
-        let database = database_handle.clone();
-        let query = query.to_string();
-        let last_search_time = last_search_time.clone();
-        let search_delay = search_delay;
-
-        // 获取当前时间并检查防抖
-        let now = Instant::now();
-        let mut last_time = last_search_time.lock().unwrap();
-
-        // 检查是否过了防抖时间
-        if now.duration_since(*last_time) < search_delay {
-            // 如果太快，直接返回，不执行搜索
-            return;
-        }
-
-        // 更新最后搜索时间
-        *last_time = now;
-        drop(last_time); // 释放锁
-
-        // 如果查询为空，清空结果
-        if query.trim().is_empty() {
-            let file_items = ModelRc::new(VecModel::default());
-            ui.set_file_items(file_items);
-            return;
-        }
-
-        // 执行搜索
-        let results = database.lock().unwrap().search_files(&query);
-        match results {
-            Ok(results) => {
-                let file_items = ui::file_records_to_model(results);
-                ui.set_file_items(file_items);
-            }
-            Err(e) => {
-                error!("Search failed: {}", e);
-                // Clear results
-                ui.set_file_items(ModelRc::new(VecModel::default()));
-            }
-        }
+        handle_search_request(
+            &query,
+            &ui_handle.clone(),
+            database_handle.clone(),
+            last_search_time.clone(),
+            search_delay,
+        );
     });
 
     // Handle context menu requests
     let ui_handle = ui.as_weak();
     let database_handle = database.clone();
     ui.on_context_menu_requested(move |file_id, x, y| {
-        let ui = ui_handle.unwrap();
-        let database = database_handle.clone();
-
-        debug!(
-            "Context menu requested for file ID: {} at position ({}, {})",
-            file_id, x, y
+        handle_context_menu_requested(
+            file_id,
+            x,
+            y,
+            &ui_handle, // UI 句柄
+            database_handle.clone(),
         );
-
-        // 获取当前选中的文件信息
-        let selected_item = ui.get_selected_file_item();
-        let file_path = selected_item.path.to_string();
-        let file_name = selected_item.name.to_string();
-
-        debug!("Selected file: {} at path: {}", file_name, file_path);
-
-        // 这里可以添加更多的上下文菜单逻辑
-        // 例如，根据文件类型启用/禁用某些菜单项
     });
 
     // Handle context menu actions
@@ -138,106 +93,76 @@ fn main() -> Result<()> {
 
     // 下载文件功能
     ui.on_download_file(move || {
-        debug!("=== DOWNLOAD FILE FUNCTION CALLED ===");
-
+        // 获取 UI 弱引用，防止闭包持有 UI 的强引用导致内存泄漏
+        let ui_handle = ui_handle.clone();
         let ui = ui_handle.unwrap();
+
+        // 复制选中项，避免闭包捕获 UI 的强引用
         let selected_item = ui.get_selected_file_item();
         let file_path = selected_item.path.to_string();
         let file_name = selected_item.name.to_string();
 
-        debug!(
-            "Attempting to download file: {} from path: {}",
-            file_name, file_path
-        );
+        // 启动后台任务
+        tokio::spawn(async move {
+            // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
+            tokio::task::spawn_blocking(move || {
+                handlers::basic::download_proc(file_path.clone());
+            })
+            .await
+            .unwrap(); // 等待后台线程完成
 
-        // 检查文件是否存在
-        let path = Path::new(&file_path);
-        if path.exists() {
-            debug!("✓ File found: {}", file_path);
-            debug!(
-                "✓ File size: {} bytes",
-                std::fs::metadata(path).unwrap().len()
-            );
-            debug!("✓ File type: {:?}", selected_item.file_type);
-
-            // 模拟下载过程
-            debug!("→ Starting download simulation...");
-            debug!("→ Copying file to downloads directory...");
-            debug!("→ Download completed successfully!");
-
-            // 这里可以添加实际的文件复制逻辑
-            let downloads_dir = std::path::PathBuf::from(".");
-            let target_path = downloads_dir.join(&file_name);
-            debug!("→ File would be saved to: {:?}", target_path);
-        } else {
-            error!("✗ File not found: {}", file_path);
-            error!("✗ Download failed - file does not exist");
-        }
-
-        debug!("=== DOWNLOAD FILE FUNCTION COMPLETED ===");
+            // 回到 UI 线程更新
+            if let Some(ui) = ui_handle.upgrade() {
+                ui.invoke_update_content();
+            }
+        });
     });
 
     // 发送到服务器功能
     let ui_handle = ui.as_weak();
     ui.on_send_to_server(move || {
-        let ui = ui_handle.unwrap();
-        let selected_item = ui.get_selected_file_item();
-        let file_path = selected_item.path.to_string();
-        let file_name = selected_item.name.to_string();
-
-        debug!(
-            "Sending file to server: {} from path: {}",
-            file_name, file_path
-        );
-
-        // 在实际应用中，这里可以实现发送到服务器的逻辑
-        // 例如，通过HTTP POST请求上传文件
-        if Path::new(&file_path).exists() {
-            debug!("File exists and can be sent to server");
-            // 这里可以添加实际的上传逻辑
-        } else {
-            error!("File not found: {}", file_path);
-        }
+        handle_send_to_server(&ui_handle);
     });
 
     // 更新文件内容功能
     let ui_handle = ui.as_weak();
+    let handle = ui_handle.clone();
     ui.on_update_content(move || {
-        let ui = ui_handle.unwrap();
-        let selected_item = ui.get_selected_file_item();
-        let file_path = selected_item.path.to_string();
-        let file_name = selected_item.name.to_string();
-
-        debug!(
-            "Updating file content: {} at path: {}",
-            file_name, file_path
-        );
-
-        // 在实际应用中，这里可以实现文件内容更新逻辑
-        // 例如，打开文件编辑器或读取文件内容进行修改
-        if Path::new(&file_path).exists() {
-            debug!("File exists and can be updated");
-            // 这里可以添加实际的文件更新逻辑
-        } else {
-            error!("File not found: {}", file_path);
-        }
+        handle_update_content(&handle);
+    });
+    // 打开文件位置功能
+    let handle = ui_handle.clone();
+    ui.on_send_to_server(move || {
+        // 在闭包中，我们传递 ui_handle，并在内部尝试升级为强引用
+        handle_send_to_server(&handle);
     });
 
-    // 打开文件位置功能
-    let ui_handle = ui.as_weak();
+    let handle = ui_handle.clone();
     ui.on_open_location(move || {
+        handle_open_location(&handle);
+    });
+    ui.on_send_to_aria2(move || {
+        let ui_handle = ui_handle.clone();
         let ui = ui_handle.unwrap();
         let selected_item = ui.get_selected_file_item();
         let file_path = selected_item.path.to_string();
 
-        debug!("Opening file location: {}", file_path);
+        debug!("Try to send {} to aria2 server!", file_path);
 
-        // 在实际应用中，这里可以实现打开文件位置的功能
-        // 例如，在文件管理器中打开文件所在目录
-        if let Some(parent_dir) = Path::new(&file_path).parent() {
-            debug!("Opening directory: {:?}", parent_dir);
-            // 这里可以添加实际的打开目录逻辑
-        }
+        // 启动后台任务
+        tokio::spawn(async move {
+            // 如果 download_proc 是同步阻塞函数，用 spawn_blocking
+            tokio::task::spawn_blocking(move || {
+                handlers::basic::send_to_aria2(file_path.clone());
+            })
+            .await
+            .unwrap(); // 等待后台线程完成
+
+            // 回到 UI 线程更新
+            if let Some(ui) = ui_handle.upgrade() {
+                ui.invoke_update_content();
+            }
+        });
     });
 
     // Run application

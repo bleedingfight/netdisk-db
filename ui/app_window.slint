@@ -26,6 +26,7 @@ export component AppWindow inherits Window {
         { text: "Download File", action: "download" },
         { text: "Send to Server", action: "send_to_server" },
         { text: "Update Content", action: "update_content" },
+        { text: "Send Content to Aria", action: "send_to_aria2" },
         { text: "Open Location", action: "open_location" },
     ];
     in-out property <FileItem> selected-file-item: { id: 0, name: "", path: "", size: 0, modified_time: "", file_type: "" };
@@ -35,6 +36,7 @@ export component AppWindow inherits Window {
     callback send-to-server();
     callback update-content();
     callback open-location();
+    callback send-to-aria2();
     
     VerticalBox {
         padding: 20px;
@@ -202,6 +204,8 @@ export component AppWindow inherits Window {
                             root.send-to-server();
                         } else if (menu-item.action == "update_content") {
                             root.update-content();
+                        } else if (menu-item.action == "send_to_aria2") {
+                            root.send-to-aria2();
                         } else if (menu-item.action == "open_location") {
                             root.open-location();
                         }
@@ -218,13 +222,13 @@ export component AppWindow inherits Window {
             }
         }
         
-        // 点击菜单外部关闭菜单
-        TouchArea {
-            width: 100%;
-            height: 100%;
-            clicked => {
-                root.context-menu-visible = false;
-            }
-        }
+        // // 点击菜单外部关闭菜单
+        // TouchArea {
+        //     width: 100%;
+        //     height: 100%;
+        //     clicked => {
+        //         root.context-menu-visible = false;
+        //     }
+        // }
     }
 }
