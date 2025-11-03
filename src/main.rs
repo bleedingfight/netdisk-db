@@ -2,6 +2,7 @@ mod config;
 mod database;
 mod handlers;
 mod ui;
+mod utils;
 
 use anyhow::{Context, Result};
 use database::sqlite::SqliteDatabase;
@@ -13,6 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use handlers::*;
+use utils::format_file_size;
 use tracing::{debug, info, span, Level};
 use tracing_subscriber;
 
@@ -42,6 +44,8 @@ async fn main() -> Result<()> {
 
     debug!("Using database type: {}", config.database.db_type);
     debug!("Database connection: {}", config.database.connection_string);
+    debug!("Current timestamp: {}", utils::get_timestamp());
+    debug!("File size formatting test: {}", format_file_size(1048576));
 
     // Initialize database
     let database: Arc<Mutex<dyn Database>> = match config.database.db_type.as_str() {
