@@ -80,18 +80,12 @@ pub fn update_search_fields(
     ui: &slint::Weak<AppWindow>,
     database: Arc<Mutex<dyn Database>>,
 ) {
-    let ui = match ui.upgrade() {
+    let _ui = match ui.upgrade() {
         Some(u) => u,
         None => return,
     };
 
     let fields = database.lock().unwrap().get_search_fields();
-    let field_model = slint::ModelRc::new(slint::VecModel::from(
-        fields.into_iter().collect::<Vec<_>>()
-    ));
-    
-    ui.set_search_fields(field_model);
-    ui.set_current_search_field_index(0); // 重置为第一个字段
-    
-    debug!("Updated search fields: {:?}", fields);
+    debug!("Available search fields: {:?}", fields);
+    // 注意：由于UI简化，这里不再设置搜索字段，只记录日志
 }

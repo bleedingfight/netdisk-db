@@ -4,6 +4,11 @@
 
 use anyhow::Context;
 use netdisk_db::prelude::*; // 使用库的prelude简化导入
+use netdisk_db::controllers::handlers::{
+    handle_file_context_menu,
+    handle_open_file,
+    handle_open_file_location,
+};
 use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -181,6 +186,22 @@ fn setup_event_handlers(ui: &AppWindow, database_manager: Arc<Mutex<DatabaseMana
     let manager_handle = database_manager.clone();
     ui.on_database_changed(move |index| {
         handle_database_changed(index, &ui_handle, manager_handle.clone());
+    });
+
+    // 文件右键菜单处理
+    let ui_handle = ui.as_weak();
+    ui.on_file_context_menu_requested(move |file_item, x, y| {
+        handle_file_context_menu(file_item, x, y, &ui_handle);
+    });
+
+    // 打开文件处理
+    ui.on_open_file(move |file_path| {
+        handle_open_file(&file_path);
+    });
+
+    // 打开文件位置处理
+    ui.on_open_file_location(move |file_path| {
+        handle_open_file_location(&file_path);
     });
 
     Ok(())

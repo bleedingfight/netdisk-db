@@ -3,7 +3,7 @@
 //! 包含所有用户交互和业务流程的处理函数
 
 use crate::models::database::Database;
-use crate::views::ui::{file_records_to_model, database_list_to_string_model, AppWindow};
+use crate::views::ui::{file_records_to_model, database_list_to_string_model, AppWindow, FileItem};
 use crate::services::database_manager::DatabaseManager;
 use slint::{ModelRc, VecModel};
 use std::sync::{Arc, Mutex};
@@ -144,6 +144,106 @@ pub fn handle_database_changed(
         }
         Err(e) => {
             error!("Failed to switch database: {}", e);
+        }
+    }
+}
+
+/// 处理文件右键菜单请求
+///
+/// # Arguments
+/// * `file_item` - 文件项
+/// * `x` - 鼠标X坐标
+/// * `y` - 鼠标Y坐标
+/// * `ui` - UI 弱引用
+pub fn handle_file_context_menu(
+    file_item: FileItem,
+    x: f32,
+    y: f32,
+    ui: &slint::Weak<AppWindow>,
+) {
+    info!("=== RIGHT CLICK DETECTED ===");
+    info!("File: {}, Position: ({}, {})", file_item.name, x, y);
+    
+    let ui = match ui.upgrade() {
+        Some(u) => u,
+        None => {
+            error!("Failed to upgrade UI handle");
+            return;
+        }
+    };
+
+    info!("Context menu requested for file: {} at position ({}, {})",
+          file_item.name, x, y);
+    
+    // 设置选中的文件项
+    ui.set_selected_file_item(file_item);
+    ui.set_context_menu_visible(true);
+    ui.set_context_menu_x(x as f32);
+    ui.set_context_menu_y(y as f32);
+    
+    info!("=== CONTEXT MENU SHOULD BE VISIBLE ===");
+}
+
+/// 处理打开文件请求
+///
+/// # Arguments
+/// * `file_path` - 文件路径
+pub fn handle_open_file(file_path: &str) {
+    info!("Opening file: {}", file_path);
+    
+    // 使用系统默认程序打开文件
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(&["/C", "start", "", file_path])
+            .spawn();
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(file_path)
+            .spawn();
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(file_path)
+            .spawn();
+    }
+}
+
+/// 处理打开文件位置请求
+///
+/// # Arguments
+/// * `file_path` - 文件路径
+pub fn handle_open_file_location(file_path: &str) {
+    info!("Opening file location for: {}", file_path);
+    
+    if let Some(parent_path) = std::path::Path::new(file_path).parent() {
+        let parent_string = parent_path.to_string_lossy().to_string();
+        
+        // 使用系统文件管理器打开文件夹
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("explorer")
+                .arg(&parent_string)
+                .spawn();
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open")
+                .arg(&parent_string)
+                .spawn();
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&parent_string)
+                .spawn();
         }
     }
 }
