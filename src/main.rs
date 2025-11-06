@@ -50,12 +50,13 @@ async fn main() -> Result<()> {
 }
 
 /// 初始化应用程序配置
-/// 
+///
 /// 如果配置文件不存在则创建默认配置
+/// 并扫描当前目录下的数据库文件
 fn initialize_config() -> Result<AppConfig> {
     let config_path = "config.json";
     
-    let config = if std::path::Path::new(config_path).exists() {
+    let mut config = if std::path::Path::new(config_path).exists() {
         AppConfig::load_from_file(config_path).context("Failed to load config file")?
     } else {
         info!("Config file not found, creating default config");
@@ -65,33 +66,79 @@ fn initialize_config() -> Result<AppConfig> {
         default_config
     };
 
+    // 扫描当前目录下的数据库文件
+    scan_for_database_files(&mut config)?;
+
     // 记录配置信息
     debug!("Using database type: {}", config.database.db_type);
     debug!("Database connection: {}", config.database.connection_string);
     debug!("Current timestamp: {}", get_timestamp());
     debug!("File size formatting test: {}", format_file_size(1048576));
+    debug!("Available databases: {}", config.multi_database.databases.len());
 
     Ok(config)
 }
 
-/// 初始化数据库连接
-/// 
-/// # Arguments
-/// * `config` - 应用配置
-async fn initialize_database(config: &AppConfig) -> Result<Arc<Mutex<dyn Database>>> {
-    match config.database.db_type.as_str() {
-        "sqlite" => {
-            let sqlite_db = SqliteDatabase::new(&config.database.connection_string)
-                .context("Failed to create SQLite database")?;
-            sqlite_db.init_database()
-                .context("Failed to initialize database")?;
-            Ok(Arc::new(Mutex::new(sqlite_db)))
-        }
-        _ => {
-            anyhow::bail!("Unsupported database type: {}", config.database.db_type);
+/// 扫描当前目录下的数据库文件
+fn scan_for_database_files(config: &mut AppConfig) -> Result<()> {
+    let current_dir = std::env::current_dir().context("Failed to get current directory")?;
+    info!("Scanning for database files in: {:?}", current_dir);
+    
+    let mut found_databases = Vec::new();
+    
+    // 读取当前目录下的所有文件
+    if let Ok(entries) = std::fs::read_dir(&current_dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                
+                // 检查是否为.db文件
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("db") {
+                    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                        // 跳过临时文件和系统文件
+                        if !file_name.starts_with('.') && !file_name.starts_with('~') {
+                            let db_name = file_name.trim_end_matches(".db").to_string();
+                            let db_path = path.to_string_lossy().to_string();
+                            
+                            info!("Found database file: {} at path: {}", db_name, db_path);
+                            
+                            found_databases.push(DatabaseConfig {
+                                db_type: "sqlite".to_string(),
+                                connection_string: db_path,
+                                name: db_name,
+                                description: Some(format!("Auto-discovered database: {}", file_name)),
+                            });
+                        }
+                    }
+                }
+            }
         }
     }
+    
+    // 如果找到了数据库文件，更新配置
+    if !found_databases.is_empty() {
+        info!("Found {} database files, updating configuration", found_databases.len());
+        
+        // 清空现有的多数据库配置
+        config.multi_database.databases.clear();
+        
+        // 添加发现的数据库
+        for db_config in found_databases {
+            config.add_database(db_config);
+        }
+        
+        // 设置第一个发现的数据库为默认
+        if !config.multi_database.databases.is_empty() {
+            config.multi_database.default_database = 0;
+            config.database = config.multi_database.databases[0].clone();
+        }
+    } else {
+        info!("No database files found in current directory, using existing configuration");
+    }
+    
+    Ok(())
 }
+
 
 /// 创建UI界面
 /// 
@@ -134,108 +181,6 @@ fn setup_event_handlers(ui: &AppWindow, database_manager: Arc<Mutex<DatabaseMana
     let manager_handle = database_manager.clone();
     ui.on_database_changed(move |index| {
         handle_database_changed(index, &ui_handle, manager_handle.clone());
-    });
-
-    // 上下文菜单请求处理
-    let ui_handle = ui.as_weak();
-    let database_handle = database_manager.lock().unwrap().get_current_database();
-    ui.on_context_menu_requested(move |file_id, x, y| {
-        handle_context_menu_requested(
-            file_id,
-            x,
-            y,
-            &ui_handle,
-            database_handle.clone(),
-        );
-    });
-
-    // 文件操作处理
-    setup_file_operations(ui, database_manager)?;
-
-    Ok(())
-}
-
-/// 设置文件操作处理器
-///
-/// # Arguments
-/// * `ui` - UI 实例
-/// * `database_manager` - 数据库管理器
-fn setup_file_operations(ui: &AppWindow, _database_manager: Arc<Mutex<DatabaseManager>>) -> Result<()> {
-    let ui_handle = ui.as_weak();
-
-    // 下载文件
-    ui.on_download_file(move || {
-        let ui_handle = ui_handle.clone();
-        let ui = match ui_handle.upgrade() {
-            Some(u) => u,
-            None => return,
-        };
-
-        let selected_item = ui.get_selected_file_item();
-        let file_path = selected_item.path.to_string();
-
-        debug!("Starting download for file: {}", file_path);
-
-        // 启动后台任务
-        tokio::spawn(async move {
-            tokio::task::spawn_blocking(move || {
-                download_proc(file_path.clone());
-            })
-            .await
-            .unwrap();
-
-            // 回到 UI 线程更新
-            if let Some(ui) = ui_handle.upgrade() {
-                ui.invoke_update_content();
-            }
-        });
-    });
-
-    // 发送到服务器
-    let ui_handle = ui.as_weak();
-    ui.on_send_to_server(move || {
-        handle_send_to_server(&ui_handle);
-    });
-
-    // 更新内容
-    let ui_handle = ui.as_weak();
-    ui.on_update_content(move || {
-        handle_update_content(&ui_handle);
-    });
-    
-    // 打开文件位置
-    let ui_handle = ui.as_weak();
-    ui.on_open_location(move || {
-        handle_open_location(&ui_handle);
-    });
-
-    // 发送到 Aria2
-    let ui_handle = ui.as_weak();
-    ui.on_send_to_aria2(move || {
-        let ui_handle = ui_handle.clone();
-        let ui = match ui_handle.upgrade() {
-            Some(u) => u,
-            None => return,
-        };
-
-        let selected_item = ui.get_selected_file_item();
-        let file_path = selected_item.path.to_string();
-
-        debug!("Sending file to Aria2: {}", file_path);
-
-        // 启动后台任务
-        tokio::spawn(async move {
-            tokio::task::spawn_blocking(move || {
-                send_to_aria2(file_path.clone());
-            })
-            .await
-            .unwrap();
-
-            // 回到 UI 线程更新
-            if let Some(ui) = ui_handle.upgrade() {
-                ui.invoke_update_content();
-            }
-        });
     });
 
     Ok(())

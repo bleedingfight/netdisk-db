@@ -1,6 +1,8 @@
 //! 集成测试 - 测试所有模块功能
 
 use netdisk_db::prelude::*;
+use netdisk_db::services::database::sqlite::SqliteDatabase;
+use netdisk_db::services::database::connector::DatabaseConnectorFactory;
 
 #[test]
 fn test_config_default() {
@@ -55,13 +57,18 @@ fn test_sqlite_database_creation() {
 }
 
 #[test]
-fn test_open_in_file_manager() {
-    use netdisk_db::controllers::handlers::open_in_file_manager;
+fn test_database_connector_factory() {
+    // 测试创建 SQLite 连接器
+    let sqlite_connector = DatabaseConnectorFactory::create_connector("sqlite");
+    assert!(sqlite_connector.is_ok());
+    assert_eq!(sqlite_connector.unwrap().get_db_type(), "sqlite");
     
-    // 这个测试只是确保函数不会panic
-    // 实际测试需要在不同平台上运行
-    let temp_dir = std::env::temp_dir();
-    let result = open_in_file_manager(&temp_dir);
-    // 在CI环境中可能会失败，所以不assert
-    println!("Open file manager result: {:?}", result);
+    // 测试创建 MySQL 连接器
+    let mysql_connector = DatabaseConnectorFactory::create_connector("mysql");
+    assert!(mysql_connector.is_ok());
+    assert_eq!(mysql_connector.unwrap().get_db_type(), "mysql");
+    
+    // 测试不支持的数据库类型
+    let invalid_connector = DatabaseConnectorFactory::create_connector("invalid");
+    assert!(invalid_connector.is_err());
 }

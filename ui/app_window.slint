@@ -1,4 +1,4 @@
-import { LineEdit, ScrollView, VerticalBox, HorizontalBox, StandardButton, Button } from "std-widgets.slint";
+import { LineEdit, ScrollView, VerticalBox, HorizontalBox, StandardButton, Button, ComboBox } from "std-widgets.slint";
 
 export struct FileItem {
     id: int,
@@ -9,17 +9,6 @@ export struct FileItem {
     file_type: string,
 }
 
-export struct ContextMenuItem {
-    text: string,
-    action: string,
-}
-
-export struct DatabaseInfo {
-    name: string,
-    db_type: string,
-    index: int,
-}
-
 export component AppWindow inherits Window {
     title: "File Search Tool";
     preferred-width: 800px;
@@ -27,81 +16,59 @@ export component AppWindow inherits Window {
     
     in-out property <[FileItem]> file-items: [];
     in-out property <string> search-text: "";
-    in-out property <bool> context-menu-visible: false;
-    in-out property <[ContextMenuItem]> context-menu-items: [
-        { text: "Download File", action: "download" },
-        { text: "Send to Server", action: "send_to_server" },
-        { text: "Update Content", action: "update_content" },
-        { text: "Send Content to Aria", action: "send_to_aria2" },
-        { text: "Open Location", action: "open_location" },
-    ];
-    in-out property <FileItem> selected-file-item: { id: 0, name: "", path: "", size: 0, modified_time: "", file_type: "" };
-    in-out property <[DatabaseInfo]> available-databases: [];
+    in-out property <[string]> available-databases: [];
     in-out property <int> current-database-index: 0;
-    in-out property <[string]> search-fields: ["name", "path"];
-    in-out property <int> current-search-field-index: 0;
     
     callback search-requested(string);
-    callback context-menu-requested(int, length, length);
-    callback download-file();
-    callback send-to-server();
-    callback update-content();
-    callback open-location();
-    callback send-to-aria2();
     callback database-changed(int);
     
     VerticalBox {
         padding: 20px;
-        spacing: 10px;
+        spacing: 15px;
         
-        // 数据库选择器
+        // 数据库选择器 - 使用下拉列表
         HorizontalBox {
             spacing: 10px;
+            alignment: start;
             
             Text {
                 text: "Database:";
                 vertical-alignment: center;
                 font-weight: 600;
+                width: 80px;
             }
             
-            // 使用按钮组代替ComboBox
-            for db-info[index] in root.available-databases : Button {
-                text: db-info.name;
-                checkable: true;
-                checked: root.current-database-index == index;
+            // 数据库下拉选择框
+            database-combo := ComboBox {
+                width: 250px;
+                model: root.available-databases;
+                current-index: root.current-database-index;
+            }
+            
+            // 刷新数据库列表按钮
+            Button {
+                text: "🔄";
                 clicked => {
-                    root.current-database-index = index;
-                    root.database-changed(index);
+                    // 触发数据库列表刷新
+                    root.database-changed(-1); // -1 表示刷新列表
                 }
-            }
-            
-            Text {
-                text: "Type: " + (root.available-databases.length > root.current-database-index ? root.available-databases[root.current-database-index].db_type : "");
-                vertical-alignment: center;
-                font-size: 12px;
-                color: #666666;
             }
         }
         
+        // 搜索框
         HorizontalBox {
             spacing: 10px;
+            alignment: start;
             
             Text {
-                text: "Search Files:";
+                text: "Search:";
                 vertical-alignment: center;
-            }
-            
-            // 使用按钮组代替ComboBox
-            for field-info[index] in root.search-fields : Button {
-                text: field-info;
-                checkable: true;
-                checked: root.current-search-field-index == index;
-                clicked => {
-                    root.current-search-field-index = index;
-                }
+                font-weight: 600;
+                width: 80px;
             }
             
             search-input := LineEdit {
+                width: 400px;
                 placeholder-text: "Enter file name or path...";
                 edited => {
                     root.search-text = self.text;
@@ -113,7 +80,7 @@ export component AppWindow inherits Window {
             }
             
             Rectangle {
-                width: 60px;
+                width: 80px;
                 height: 30px;
                 background: #007acc;
                 border-radius: 5px;
@@ -129,10 +96,12 @@ export component AppWindow inherits Window {
                     color: white;
                     horizontal-alignment: center;
                     vertical-alignment: center;
+                    font-weight: 600;
                 }
             }
         }
         
+        // 搜索结果列表
         ScrollView {
             preferred-height: 100%;
             
@@ -144,6 +113,7 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     opacity: 0.5;
+                    height: 100px;
                 }
                 
                 for file-item in root.file-items : Rectangle {
@@ -155,16 +125,7 @@ export component AppWindow inherits Window {
                     
                     TouchArea {
                         clicked => {
-                            root.selected-file-item = file-item;
-                            root.context-menu-visible = false; // 左键点击时关闭菜单
-                        }
-                        
-                        pointer-event(event) => {
-                            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                                root.selected-file-item = file-item;
-                                root.context-menu-visible = true;
-                                root.context-menu-requested(file-item.id, 0, 0);
-                            }
+                            // 简单的文件选择，不包含右键菜单功能
                         }
                         
                         HorizontalBox {
@@ -223,63 +184,5 @@ export component AppWindow inherits Window {
                 }
             }
         }
-    }
-    
-    // 右键菜单 - 使用绝对定位放在窗口层
-    if root.context-menu-visible : Rectangle {
-        x: 200px;
-        y: 200px;
-        width: 200px;
-        height: root.context-menu-items.length * 40px;
-        background: #ffffff;
-        border-radius: 5px;
-        border-width: 1px;
-        border-color: #cccccc;
-        drop-shadow-blur: 5px;
-        drop-shadow-offset-x: 2px;
-        drop-shadow-offset-y: 2px;
-        drop-shadow-color: #00000020;
-        
-        VerticalBox {
-            padding: 5px;
-            
-            for menu-item in root.context-menu-items : Rectangle {
-                height: 35px;
-                
-                TouchArea {
-                    clicked => {
-                        root.context-menu-visible = false;
-                        if (menu-item.action == "download") {
-                            root.download-file();
-                        } else if (menu-item.action == "send_to_server") {
-                            root.send-to-server();
-                        } else if (menu-item.action == "update_content") {
-                            root.update-content();
-                        } else if (menu-item.action == "send_to_aria2") {
-                            root.send-to-aria2();
-                        } else if (menu-item.action == "open_location") {
-                            root.open-location();
-                        }
-                    }
-                    
-                    Text {
-                        text: menu-item.text;
-                        font-size: 14px;
-                        color: #333333;
-                        horizontal-alignment: left;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-        
-        // // 点击菜单外部关闭菜单
-        // TouchArea {
-        //     width: 100%;
-        //     height: 100%;
-        //     clicked => {
-        //         root.context-menu-visible = false;
-        //     }
-        // }
     }
 }

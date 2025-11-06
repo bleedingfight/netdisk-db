@@ -4,9 +4,10 @@
 
 use anyhow::{Result, Context};
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use crate::models::config::{AppConfig, DatabaseConfig};
 use crate::models::database::Database;
-use crate::services::database::sqlite::SqliteDatabase;
+use crate::services::database::{sqlite::SqliteDatabase, connector::DatabaseConnectorFactory};
 use tracing::{debug, info};
 
 /// 数据库管理器
@@ -18,7 +19,16 @@ pub struct DatabaseManager {
 impl DatabaseManager {
     /// 创建新的数据库管理器
     pub fn new(config: Arc<Mutex<AppConfig>>) -> Result<Self> {
-        let current_db = Self::create_database(&config.lock().unwrap().database)?;
+        // 首先扫描数据库目录，自动发现.db文件
+        {
+            let mut app_config = config.lock().unwrap();
+            Self::scan_and_add_databases(&mut app_config)?;
+        } // 释放锁
+        
+        let current_db = {
+            let app_config = config.lock().unwrap();
+            Self::create_database(&app_config.database)?
+        };
         
         Ok(Self {
             current_database: current_db,
@@ -117,5 +127,72 @@ impl DatabaseManager {
         let config = self.config.lock().unwrap();
         config.save_to_file(path)
             .context("Failed to save configuration")
+    }
+    
+    /// 扫描数据库目录，自动发现数据库
+    fn scan_and_add_databases(app_config: &mut AppConfig) -> Result<()> {
+        info!("Scanning for available databases...");
+        
+        // 清空现有的多数据库配置（保留默认的）
+        app_config.multi_database.databases.clear();
+        
+        // 使用连接器工厂获取所有支持的连接器
+        let connectors = DatabaseConnectorFactory::get_all_connectors();
+        
+        for connector in connectors {
+            let db_type = connector.get_db_type();
+            info!("Scanning for {} databases...", db_type);
+            
+            // 根据数据库类型设置不同的连接信息
+            let mut connection_info = HashMap::new();
+            match db_type {
+                "sqlite" => {
+                    connection_info.insert("path".to_string(), ".".to_string());
+                }
+                "mysql" => {
+                    connection_info.insert("host".to_string(), "localhost".to_string());
+                    connection_info.insert("port".to_string(), "3306".to_string());
+                    connection_info.insert("username".to_string(), "root".to_string());
+                    connection_info.insert("password".to_string(), "".to_string());
+                }
+                _ => {}
+            }
+            
+            // 获取数据库列表
+            match connector.get_database_list(&connection_info) {
+                Ok(databases) => {
+                    info!("Found {} {} databases", databases.len(), db_type);
+                    for db_info in databases {
+                        let config = connector.create_database_config(
+                            &db_info.name,
+                            &db_info.connection_string,
+                            db_info.description
+                        );
+                        app_config.add_database(config);
+                    }
+                }
+                Err(e) => {
+                    info!("Failed to scan {} databases: {}", db_type, e);
+                }
+            }
+        }
+        
+        // 设置第一个发现的数据库为默认
+        if !app_config.multi_database.databases.is_empty() {
+            app_config.multi_database.default_database = 0;
+            app_config.database = app_config.multi_database.databases[0].clone();
+            info!("Set default database to: {}", app_config.database.name);
+        } else {
+            info!("No databases found, using existing configuration");
+        }
+        
+        Ok(())
+    }
+    
+    /// 刷新数据库列表
+    pub fn refresh_database_list(&mut self) -> Result<()> {
+        let mut config = self.config.lock().unwrap();
+        Self::scan_and_add_databases(&mut config)?;
+        Ok(())
     }
 }

@@ -25,6 +25,7 @@ pub mod controllers {
 pub mod services {
     pub mod database {
         pub mod sqlite;
+        pub mod connector;
     }
     pub mod database_manager;
 }
@@ -39,3 +40,13 @@ pub use models::{
     config::{AppConfig, DatabaseConfig},
     database::{Database, FileRecord},
 };
+
+// 重新导出控制器函数
+pub use controllers::handlers::{
+    handle_search_request,
+    handle_database_changed,
+    initialize_database_selector,
+};
+
+// 重新导出服务类型
+pub use services::database_manager::DatabaseManager;

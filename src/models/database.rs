@@ -37,7 +37,7 @@ pub trait Database: Send + Sync {
     ///
     /// # Returns
     /// * `Result<Vec<FileRecord>>` - 搜索结果列表
-    fn search_field(&self, field: &str, query: &str) -> Result<Vec<FileRecord>> {
+    fn search_field(&self, _field: &str, query: &str) -> Result<Vec<FileRecord>> {
         // 默认实现：忽略字段参数，使用普通搜索
         self.search_files(query)
     }

@@ -34,22 +34,20 @@ pub fn file_records_to_model(file_records: Vec<FileRecord>) -> ModelRc<FileItem>
     ModelRc::new(slint::VecModel::from(items))
 }
 
-/// 将数据库信息列表转换为 UI 模型
+/// 将数据库信息列表转换为字符串数组供 ComboBox 使用
 ///
 /// # Arguments
 /// * `database_list` - 数据库信息列表 (name, db_type, index)
 ///
 /// # Returns
-/// * `ModelRc<DatabaseInfo>` - Slint UI 模型
-pub fn database_list_to_model(database_list: Vec<(String, String, usize)>) -> ModelRc<DatabaseInfo> {
-    debug!("Converting {} databases to UI model", database_list.len());
+/// * `ModelRc<string>` - Slint UI 字符串模型
+pub fn database_list_to_string_model(database_list: Vec<(String, String, usize)>) -> ModelRc<slint::SharedString> {
+    debug!("Converting {} databases to string model for ComboBox", database_list.len());
     
-    let items: Vec<DatabaseInfo> = database_list
+    let items: Vec<slint::SharedString> = database_list
         .into_iter()
-        .map(|(name, db_type, index)| DatabaseInfo {
-            name: name.into(),
-            db_type: db_type.into(),
-            index: index as i32,
+        .map(|(name, db_type, _index)| {
+            slint::SharedString::from(format!("{} ({})", name, db_type))
         })
         .collect();
 
