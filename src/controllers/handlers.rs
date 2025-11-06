@@ -1,17 +1,17 @@
 //! 控制器处理模块 - 业务逻辑和事件处理
-//! 
+//!
 //! 包含所有用户交互和业务流程的处理函数
 
 use crate::models::database::Database;
-use crate::views::ui::{file_records_to_model, database_list_to_string_model, AppWindow, FileItem};
 use crate::services::database_manager::DatabaseManager;
+use crate::views::ui::{database_list_to_string_model, file_records_to_model, AppWindow, FileItem};
 use slint::{ModelRc, VecModel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info};
 
 /// 文件下载处理函数（模拟实现）
-/// 
+///
 /// # Arguments
 /// * `_url` - 文件URL或路径
 pub fn download_proc<T>(_url: T)
@@ -24,20 +24,20 @@ where
 }
 
 /// 发送到 Aria2 处理函数（模拟实现）
-/// 
+///
 /// # Arguments
 /// * `_url` - 文件URL或路径
 pub fn send_to_aria2<T>(_url: T)
 where
-    T: AsRef<str>,
+    T: AsRef<str> + std::fmt::Debug,
 {
-    debug!("Send to Aria2 proc started");
+    debug!("Send {:?} to Aria2 proc started", &_url);
     std::thread::sleep(std::time::Duration::from_secs(10));
     debug!("Send to Aria2 proc finished");
 }
 
 /// 处理搜索请求
-/// 
+///
 /// # Arguments
 /// * `query` - 搜索关键词
 /// * `ui` - UI 弱引用
@@ -89,7 +89,6 @@ pub fn handle_search_request(
     }
 }
 
-
 /// 处理数据库切换请求
 ///
 /// # Arguments
@@ -117,7 +116,7 @@ pub fn handle_database_changed(
                 let database_list = manager.get_database_list();
                 let database_model = database_list_to_string_model(database_list);
                 ui.set_available_databases(database_model);
-                
+
                 // 重置当前选择为第一个数据库
                 if manager.get_database_list().len() > 0 {
                     ui.set_current_database_index(0);
@@ -131,13 +130,13 @@ pub fn handle_database_changed(
     }
 
     let index = database_index as usize;
-    
+
     // 切换数据库
     let mut manager = database_manager.lock().unwrap();
     match manager.switch_database(index) {
         Ok(_) => {
             info!("Successfully switched to database index: {}", index);
-            
+
             // 清空搜索结果
             ui.set_file_items(ModelRc::new(VecModel::default()));
             ui.set_search_text("".into());
@@ -155,15 +154,10 @@ pub fn handle_database_changed(
 /// * `x` - 鼠标X坐标
 /// * `y` - 鼠标Y坐标
 /// * `ui` - UI 弱引用
-pub fn handle_file_context_menu(
-    file_item: FileItem,
-    x: f32,
-    y: f32,
-    ui: &slint::Weak<AppWindow>,
-) {
+pub fn handle_file_context_menu(file_item: FileItem, x: f32, y: f32, ui: &slint::Weak<AppWindow>) {
     info!("=== RIGHT CLICK DETECTED ===");
     info!("File: {}, Position: ({}, {})", file_item.name, x, y);
-    
+
     let ui = match ui.upgrade() {
         Some(u) => u,
         None => {
@@ -172,15 +166,17 @@ pub fn handle_file_context_menu(
         }
     };
 
-    info!("Context menu requested for file: {} at position ({}, {})",
-          file_item.name, x, y);
-    
+    info!(
+        "Context menu requested for file: {} at position ({}, {})",
+        file_item.name, x, y
+    );
+
     // 设置选中的文件项
     ui.set_selected_file_item(file_item);
     ui.set_context_menu_visible(true);
     ui.set_context_menu_x(x as f32);
     ui.set_context_menu_y(y as f32);
-    
+
     info!("=== CONTEXT MENU SHOULD BE VISIBLE ===");
 }
 
@@ -190,7 +186,7 @@ pub fn handle_file_context_menu(
 /// * `file_path` - 文件路径
 pub fn handle_open_file(file_path: &str) {
     info!("Opening file: {}", file_path);
-    
+
     // 使用系统默认程序打开文件
     #[cfg(target_os = "windows")]
     {
@@ -198,14 +194,12 @@ pub fn handle_open_file(file_path: &str) {
             .args(&["/C", "start", "", file_path])
             .spawn();
     }
-    
+
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
-            .arg(file_path)
-            .spawn();
+        let _ = std::process::Command::new("open").arg(file_path).spawn();
     }
-    
+
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("xdg-open")
@@ -220,10 +214,10 @@ pub fn handle_open_file(file_path: &str) {
 /// * `file_path` - 文件路径
 pub fn handle_open_file_location(file_path: &str) {
     info!("Opening file location for: {}", file_path);
-    
+
     if let Some(parent_path) = std::path::Path::new(file_path).parent() {
         let parent_string = parent_path.to_string_lossy().to_string();
-        
+
         // 使用系统文件管理器打开文件夹
         #[cfg(target_os = "windows")]
         {
@@ -231,14 +225,14 @@ pub fn handle_open_file_location(file_path: &str) {
                 .arg(&parent_string)
                 .spawn();
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             let _ = std::process::Command::new("open")
                 .arg(&parent_string)
                 .spawn();
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             let _ = std::process::Command::new("xdg-open")
@@ -265,12 +259,14 @@ pub fn initialize_database_selector(
     let manager = database_manager.lock().unwrap();
     let database_list = manager.get_database_list();
     let current_index = manager.get_current_database_index();
-    
+
     // 设置数据库列表 - 使用字符串模型供ComboBox使用
     let database_model = database_list_to_string_model(database_list);
     ui.set_available_databases(database_model);
     ui.set_current_database_index(current_index as i32);
-    
-    debug!("Initialized database selector with {} databases",
-           manager.get_database_list().len());
+
+    debug!(
+        "Initialized database selector with {} databases",
+        manager.get_database_list().len()
+    );
 }
