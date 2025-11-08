@@ -57,7 +57,7 @@ export component AppWindow inherits Window {
             
             // 数据库下拉选择框
             database-combo := ComboBox {
-                    width: 250px;
+                    width: 300px;
                     model: root.available-databases;
                     current-index: root.current-database-index;
                 }
@@ -84,7 +84,8 @@ export component AppWindow inherits Window {
                 }
 
                 search-input := LineEdit {
-                    width: 400px;
+                    // width: root.width / 2;
+                    max-width: self.min-width;
                     placeholder-text: "Enter file name or path...";
                     edited => {
                         root.search-text = self.text;
@@ -100,11 +101,6 @@ export component AppWindow inherits Window {
                     height: 30px;
                     background: #007acc;
                     border-radius: 5px;
-                    TouchArea {
-                        clicked => {
-                            root.search-requested(root.search-text);
-                        }
-                    }
 
                     Text {
                         text: "Search";
@@ -112,6 +108,12 @@ export component AppWindow inherits Window {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                         font-weight: 600;
+                    }
+                }
+                TouchArea {
+                    opacity: 0.8;
+                    clicked => {
+                        root.search-requested(root.search-text);
                     }
                 }
             }
@@ -148,7 +150,9 @@ export component AppWindow inherits Window {
                                     root.selected-file-item = file-item;
                                     root.context-menu-x = self.absolute-position.x;
                                     root.context-menu-y = self.absolute-position.y + 10px;
-                                    root.context-menu-visible = true;
+                                    if root.context-menu-visible == false {
+                                        root.context-menu-visible = true;
+                                    }
                                     root.file-context-menu-requested(file-item, self.absolute-position.x, self.absolute-position.y + 20px);
                                 }
                             }

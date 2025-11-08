@@ -75,6 +75,7 @@ pub fn handle_search_request(
     }
 
     // 执行搜索
+    debug!("尝试执行搜索任务");
     let results = database.lock().unwrap().search_files(query);
     match results {
         Ok(results) => {

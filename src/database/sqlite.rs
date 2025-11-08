@@ -1,8 +1,8 @@
-use anyhow::{Result, Context};
-use rusqlite::params;
-use r2d2_sqlite::SqliteConnectionManager;
-use r2d2::Pool;
 use crate::database::{Database, FileRecord};
+use anyhow::{Context, Result};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::params;
 
 pub struct SqliteDatabase {
     pool: Pool<SqliteConnectionManager>,
@@ -14,16 +14,18 @@ impl SqliteDatabase {
         let pool = Pool::builder()
             .build(manager)
             .context("Failed to create connection pool")?;
-        
+
         Ok(Self { pool })
     }
 }
 
 impl Database for SqliteDatabase {
     fn init_database(&self) -> Result<()> {
-        let conn = self.pool.get()
+        let conn = self
+            .pool
+            .get()
             .context("Failed to get connection from pool")?;
-        
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,25 +36,26 @@ impl Database for SqliteDatabase {
                 file_type TEXT NOT NULL
             )",
             [],
-        ).context("Failed to create files table")?;
+        )
+        .context("Failed to create files table")?;
 
         // Create indexes to improve search performance
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_files_name ON files(name)",
             [],
-        ).context("Failed to create index on files.name")?;
+        )
+        .context("Failed to create index on files.name")?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)",
             [],
-        ).context("Failed to create index on files.path")?;
+        )
+        .context("Failed to create index on files.path")?;
 
         // If table is empty, add some sample data
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM files",
-            [],
-            |row| row.get(0),
-        ).context("Failed to count files")?;
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .context("Failed to count files")?;
 
         if count == 0 {
             self.add_sample_data()?;
@@ -63,31 +66,38 @@ impl Database for SqliteDatabase {
 
     fn search_files(&self, query: &str) -> Result<Vec<FileRecord>> {
         let search_pattern = format!("%{}%", query);
-        
-        let conn = self.pool.get()
+
+        let conn = self
+            .pool
+            .get()
             .context("Failed to get connection from pool")?;
-        
-        let mut stmt = conn.prepare(
-            "SELECT id, name, path, size, modified_time, file_type 
+
+        let command = "SELECT id, name, path, size, modified_time, file_type 
              FROM files 
              WHERE name LIKE ?1 OR path LIKE ?1
              ORDER BY name
-             LIMIT 100"
-        ).context("Failed to prepare search statement")?;
+             LIMIT 100";
+        let mut stmt = conn
+            .prepare(&command)
+            .context("Failed to prepare search statement")?;
+        debug!("搜索命令：{}",&command);
 
-        let file_iter = stmt.query_map(params![search_pattern], |row| {
-            Ok(FileRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                path: row.get(2)?,
-                size: row.get(3)?,
-                modified_time: row.get(4)?,
-                file_type: row.get(5)?,
+        let file_iter = stmt
+            .query_map(params![search_pattern], |row| {
+                Ok(FileRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    path: row.get(2)?,
+                    size: row.get(3)?,
+                    modified_time: row.get(4)?,
+                    file_type: row.get(5)?,
+                })
             })
-        }).context("Failed to execute search query")?;
+            .context("Failed to execute search query")?;
 
         let mut results = Vec::new();
         for file in file_iter {
+            debug!("message = {}",&file);
             results.push(file.context("Failed to map file record")?);
         }
 
@@ -97,15 +107,47 @@ impl Database for SqliteDatabase {
 
 impl SqliteDatabase {
     fn add_sample_data(&self) -> Result<()> {
-        let conn = self.pool.get()
+        let conn = self
+            .pool
+            .get()
             .context("Failed to get connection from pool")?;
-        
+
         let sample_files = [
-            ("document.txt", "/home/user/documents/document.txt", 1024, "2024-01-15 10:30:00", "text/plain"),
-            ("report.pdf", "/home/user/documents/report.pdf", 2048, "2024-01-14 15:45:00", "application/pdf"),
-            ("image.jpg", "/home/user/pictures/image.jpg", 3072, "2024-01-13 08:20:00", "image/jpeg"),
-            ("data.csv", "/home/user/data/data.csv", 512, "2024-01-12 14:15:00", "text/csv"),
-            ("presentation.pptx", "/home/user/presentations/presentation.pptx", 4096, "2024-01-11 16:30:00", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            (
+                "document.txt",
+                "/home/user/documents/document.txt",
+                1024,
+                "2024-01-15 10:30:00",
+                "text/plain",
+            ),
+            (
+                "report.pdf",
+                "/home/user/documents/report.pdf",
+                2048,
+                "2024-01-14 15:45:00",
+                "application/pdf",
+            ),
+            (
+                "image.jpg",
+                "/home/user/pictures/image.jpg",
+                3072,
+                "2024-01-13 08:20:00",
+                "image/jpeg",
+            ),
+            (
+                "data.csv",
+                "/home/user/data/data.csv",
+                512,
+                "2024-01-12 14:15:00",
+                "text/csv",
+            ),
+            (
+                "presentation.pptx",
+                "/home/user/presentations/presentation.pptx",
+                4096,
+                "2024-01-11 16:30:00",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
         ];
 
         for (name, path, size, modified_time, file_type) in &sample_files {
@@ -118,3 +160,4 @@ impl SqliteDatabase {
         Ok(())
     }
 }
+
