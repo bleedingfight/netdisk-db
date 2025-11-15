@@ -16,22 +16,49 @@ slint::include_modules!();
 ///
 /// # Returns
 /// * `ModelRc<FileItem>` - Slint UI 模型
+// pub fn file_records_to_model(file_records: Vec<FileRecord>) -> ModelRc<FileItem> {
+//     debug!(
+//         "Converting {} file records to UI model,FileRecord = {:?}",
+//         file_records.len(),
+//         &file_records[0]
+//     );
+
+//     let items: Vec<FileItem> = file_records
+//         .into_iter()
+//         .map(|record| FileItem {
+//             id: record.id as i32,
+//             name: record.name.into(),
+//             path: record.path.into(),
+//             size: record.size as i32,
+//             modified_time: record.modified_time.into(),
+//             file_type: record.file_type.into(),
+//         })
+//         .collect();
+
+//     ModelRc::new(slint::VecModel::from(items))
+// }
 pub fn file_records_to_model(file_records: Vec<FileRecord>) -> ModelRc<FileItem> {
-    debug!(
-        "Converting {} file records to UI model,FileRecord = {:?}",
-        file_records.len(),
-        &file_records[0]
-    );
+    debug!("Converting {} file records to UI model", file_records.len());
 
     let items: Vec<FileItem> = file_records
         .into_iter()
-        .map(|record| FileItem {
-            id: record.id as i32,
-            name: record.name.into(),
-            path: record.path.into(),
-            size: record.size as i32,
-            modified_time: record.modified_time.into(),
-            file_type: record.file_type.into(),
+        .map(|record| {
+            debug!(
+                "Processing record: name=[{}], path=[{}], size=[{}], etag=[{}]",
+                record.name, record.path, record.size, record.etag
+            );
+
+            let final_size = record.size.to_string().into();
+
+            FileItem {
+                id: record.id as i32,
+                path: record.path.into(),
+                size: final_size,
+                etag: record.etag.into(),
+                modified_time: record.modified_time as i32,
+                file_type: record.file_type.into(),
+                name: record.name.into(),
+            }
         })
         .collect();
 
@@ -60,4 +87,3 @@ pub fn database_list_to_string_model(
 
     ModelRc::new(slint::VecModel::from(items))
 }
-

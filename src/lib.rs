@@ -17,10 +17,11 @@ pub mod views {
 
 pub mod controllers {
     pub mod handlers;
-    pub mod search_handler;
+    // pub mod search_handler; // 暂时未使用的高级搜索功能
 }
 
 pub mod services {
+    pub mod aria2;
     pub mod database_manager;
     pub mod database {
         pub mod connector;

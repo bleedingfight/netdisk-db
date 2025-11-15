@@ -22,11 +22,22 @@ pub struct MultiDatabaseConfig {
     pub default_database: usize, // 默认数据库索引
 }
 
+/// Aria2配置结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Aria2Config {
+    pub enabled: bool,
+    pub rpc_host: String,
+    pub rpc_port: u16,
+    pub rpc_secret: Option<String>,
+    pub download_dir: String,
+}
+
 /// 应用程序主配置结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub database: DatabaseConfig, // 当前使用的数据库配置
     pub multi_database: MultiDatabaseConfig, // 多数据库配置
+    pub aria2: Aria2Config, // Aria2下载配置
     pub window_width: u32,
     pub window_height: u32,
 }
@@ -38,6 +49,18 @@ impl Default for DatabaseConfig {
             connection_string: "file_search.db".to_string(),
             name: "Default Database".to_string(),
             description: Some("Default file search database".to_string()),
+        }
+    }
+}
+
+impl Default for Aria2Config {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rpc_host: "127.0.0.1".to_string(),
+            rpc_port: 6800,
+            rpc_secret: None,
+            download_dir: "./downloads".to_string(),
         }
     }
 }
@@ -55,10 +78,12 @@ impl Default for AppConfig {
     fn default() -> Self {
         let default_db = DatabaseConfig::default();
         let multi_db = MultiDatabaseConfig::default();
+        let aria2_config = Aria2Config::default();
         
         Self {
             database: default_db,
             multi_database: multi_db,
+            aria2: aria2_config,
             window_width: 800,
             window_height: 600,
         }

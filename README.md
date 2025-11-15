@@ -119,7 +119,7 @@ CREATE TABLE files (
     name TEXT NOT NULL,
     path TEXT NOT NULL,
     size INTEGER NOT NULL,
-    modified_time TEXT NOT NULL,
+    modified_time INTEGER NOT NULL,
     file_type TEXT NOT NULL
 );
 

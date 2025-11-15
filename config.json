@@ -28,6 +28,13 @@
     ],
     "default_database": 0
   },
+  "aria2": {
+    "enabled": true,
+    "rpc_host": "127.0.0.1",
+    "rpc_port": 6800,
+    "rpc_secret": null,
+    "download_dir": "./downloads"
+  },
   "window_width": 800,
   "window_height": 600
 }

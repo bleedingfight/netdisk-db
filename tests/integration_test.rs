@@ -17,16 +17,17 @@ fn test_config_default() {
 fn test_file_record_creation() {
     let record = FileRecord {
         id: 1,
-        name: "test.txt".to_string(),
         path: "/home/user/test.txt".to_string(),
-        size: 1024,
-        modified_time: "2024-01-01 12:00:00".to_string(),
+        size: 1024, // 改为i64类型
+        etag: "abc123".to_string(),
+        modified_time: 1640995200, // 2024-01-01 12:00:00 的时间戳
         file_type: "text/plain".to_string(),
+        name: "test.txt".to_string(),
     };
     
     assert_eq!(record.id, 1);
     assert_eq!(record.name, "test.txt");
-    assert_eq!(record.size, 1024);
+    assert_eq!(record.size, 1024); // 改为i64类型
 }
 
 #[test]

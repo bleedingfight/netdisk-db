@@ -8,13 +8,23 @@ import {
     ComboBox,
 } from "std-widgets.slint";
 
+// export struct FileItem {
+//     id: int,
+//     name: string,
+//     path: string,
+//     size: int,
+//     modified_time: string,
+//     file_type: string,
+// }
+
 export struct FileItem {
     id: int,
-    name: string,
     path: string,
-    size: int,
-    modified_time: string,
+    size: string,
+    etag: string,
+    modified_time:int,
     file_type: string,
+    name:string,
 }
 
 export component AppWindow inherits Window {
@@ -26,7 +36,7 @@ export component AppWindow inherits Window {
     in-out property <[string]> available-databases: [];
     in-out property <int> current-database-index: 0;
     in-out property <bool> context-menu-visible: false;
-    in-out property <FileItem> selected-file-item: { id: 0, name: "", path: "", size: 0, modified_time: "", file_type: "" };
+    in-out property <FileItem> selected-file-item: { id: 0, path: "", size: "0", etag: "", modified_time:0, file_type: "", name:"" };
     in-out property <length> context-menu-x: 0px;
     in-out property <length> context-menu-y: 0px;
     callback search-requested(string);
@@ -34,12 +44,25 @@ export component AppWindow inherits Window {
     callback file-context-menu-requested(FileItem, length, length);
     callback open-file(string);
     callback open-file-location(string);
-    callback send-to-aria2(string);
+    callback send-to-aria2(string, string, string);
+    callback copy-to-clipboard(string, string, string);
     
     // 主内容区域
     Rectangle {
         width: 100%;
         height: 100%;
+        
+        // 点击外部区域关闭右键菜单
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            clicked => {
+                if root.context-menu-visible {
+                    root.context-menu-visible = false;
+                }
+            }
+        }
+
         VerticalBox {
             padding: 20px;
             spacing: 15px;
@@ -88,8 +111,10 @@ export component AppWindow inherits Window {
                     max-width: self.min-width;
                     placeholder-text: "Enter file name or path...";
                     edited => {
-                        root.search-text = self.text;
-                        root.search-requested(root.search-text);
+                        if self.text != "" {
+                            root.search-text = self.text;
+                            root.search-requested(root.search-text);
+                        }
                     }
                     accepted => {
                         root.search-requested(root.search-text);
@@ -110,6 +135,7 @@ export component AppWindow inherits Window {
                         font-weight: 600;
                     }
                 }
+
                 TouchArea {
                     opacity: 0.8;
                     clicked => {
@@ -176,7 +202,7 @@ export component AppWindow inherits Window {
                                 VerticalBox {
                                     spacing: 5px;
                                     Text {
-                                        text: file-item.name;
+                                        text: file-item.path;
                                         font-size: 14px;
                                         font-weight: 600;
                                     }
@@ -191,12 +217,14 @@ export component AppWindow inherits Window {
                                     HorizontalBox {
                                         spacing: 10px;
                                         Text {
-                                            text: "Size: " + (file-item.size / 1024) + " KB";
+                                            // 显示已经转换好的大小值，单位在转换时已经确定
+                                            text: "Size: " + file-item.size + " MB";
                                             font-size: 11px;
                                             color: #888888;
                                         }
 
                                         Text {
+                                            // text: "Modified: " + file-item.modified_time;
                                             text: "Modified: " + file-item.modified_time;
                                             font-size: 11px;
                                             color: #888888;
@@ -206,48 +234,58 @@ export component AppWindow inherits Window {
                             }
                             // （右键/关闭的逻辑已合并到上方 TouchArea）
                         }
-                        
-                        // 右键上下文菜单 - 绝对定位在主窗口上
-                        if root.context-menu-visible: Rectangle {
-                            x: root.context-menu-x;
-                            y: root.context-menu-y;
-                            width: 150px;
-                            height: 120px;
-                            background: #ffffff;
-                            border-radius: 5px;
-                            border-width: 1px;
-                            border-color: #cccccc;
-                            drop-shadow-blur: 5px;
-                            drop-shadow-offset-x: 2px;
-                            drop-shadow-offset-y: 2px;
-                            VerticalLayout {
-                                padding: 5px;
-                                spacing: 2px;
-                                Button {
-                                    text: "打开文件";
-                                    clicked => {
-                                        root.open-file(root.selected-file-item.path);
-                                        root.context-menu-visible = false;
-                                    }
-                                }
+                    }
+                }
+            }
+        }
+        
+        // 右键上下文菜单 - 移到主窗口层级，确保显示在最上层
+        if root.context-menu-visible: Rectangle {
+            x: root.context-menu-x;
+            y: root.context-menu-y;
+            width: 150px;
+            height: 120px;
+            background: #ffffff;
+            border-radius: 5px;
+            border-width: 1px;
+            border-color: #cccccc;
+            drop-shadow-blur: 5px;
+            drop-shadow-offset-x: 2px;
+            drop-shadow-offset-y: 2px;
+            // 确保菜单显示在最上层
+            z: 999;
+            VerticalLayout {
+                padding: 5px;
+                spacing: 2px;
+                Button {
+                    text: "打开文件";
+                    clicked => {
+                        root.open-file(root.selected-file-item.path);
+                        root.context-menu-visible = false;
+                    }
+                }
 
-                                Button {
-                                    text: "打开文件位置";
-                                    clicked => {
-                                        root.open-file-location(root.selected-file-item.path);
-                                        root.context-menu-visible = false;
-                                    }
-                                }
+                Button {
+                    text: "打开文件位置";
+                    clicked => {
+                        root.open-file-location(root.selected-file-item.path);
+                        root.context-menu-visible = false;
+                    }
+                }
 
-                                Button {
-                                    text: "Send To aria2";
-                                    clicked => {
-                                        root.send-to-aria2(root.selected-file-item.path);
-                                        root.context-menu-visible = false;
-                                    }
-                                }
-                            }
-                        }
+                Button {
+                    text: "Send To aria2";
+                    clicked => {
+                        root.send-to-aria2(root.selected-file-item.path,root.selected-file-item.etag,root.selected-file-item.size);
+                        root.context-menu-visible = false;
+                    }
+                }
+
+                Button {
+                    text: "Copy to Clipboard";
+                    clicked => {
+                        root.copy-to-clipboard(root.selected-file-item.path,root.selected-file-item.etag,root.selected-file-item.size);
+                        root.context-menu-visible = false;
                     }
                 }
             }
